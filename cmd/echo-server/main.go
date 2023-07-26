@@ -115,10 +115,9 @@ func serveWebSocket(wr http.ResponseWriter, req *http.Request, sendServerHostnam
 
 	err = connection.WriteMessage(websocket.TextMessage, message)
 	if err == nil {
-		var messageType int
 
 		for {
-			messageType, message, err = connection.ReadMessage()
+			messageType, msg, err := connection.ReadMessage()
 			if err != nil {
 				break
 			}
@@ -128,8 +127,8 @@ func serveWebSocket(wr http.ResponseWriter, req *http.Request, sendServerHostnam
 			} else {
 				fmt.Printf("%s | bin | %d byte(s)\n", req.RemoteAddr, len(message))
 			}
-
-			err = connection.WriteMessage(messageType, message)
+			outmsg := bytes.Join([][]byte{msg, message}, []byte{})
+			err = connection.WriteMessage(messageType, outmsg)
 			if err != nil {
 				break
 			}
