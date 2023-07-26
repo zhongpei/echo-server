@@ -76,30 +76,27 @@ func handler(wr http.ResponseWriter, req *http.Request) {
 		)
 	}
 
-	sendServerHostnameString := os.Getenv("SEND_SERVER_HOSTNAME")
-	if v := req.Header.Get("X-Send-Server-Hostname"); v != "" {
-		sendServerHostnameString = v
-	}
+	xForwardString := os.Getenv("X_FORWARD")
 
-	sendServerHostname := !strings.EqualFold(
-		sendServerHostnameString,
-		"false",
+	xForward := strings.EqualFold(
+		xForwardString,
+		"true",
 	)
 
 	if websocket.IsWebSocketUpgrade(req) {
-		serveWebSocket(wr, req, sendServerHostname)
+		serveWebSocket(wr, req, xForward)
 	} else if req.URL.Path == "/.ws" {
 		wr.Header().Add("Content-Type", "text/html")
 		wr.WriteHeader(200)
 		io.WriteString(wr, websocketHTML) // nolint:errcheck
 	} else if req.URL.Path == "/.sse" {
-		serveSSE(wr, req, sendServerHostname)
+		serveSSE(wr, req, xForward)
 	} else {
-		serveHTTP(wr, req, sendServerHostname)
+		serveHTTP(wr, req, xForward)
 	}
 }
 
-func serveWebSocket(wr http.ResponseWriter, req *http.Request, sendServerHostname bool) {
+func serveWebSocket(wr http.ResponseWriter, req *http.Request, xForwarded bool) {
 	connection, err := upgrader.Upgrade(wr, req, nil)
 	if err != nil {
 		fmt.Printf("%s | %s\n", req.RemoteAddr, err)
@@ -111,7 +108,7 @@ func serveWebSocket(wr http.ResponseWriter, req *http.Request, sendServerHostnam
 
 	var message []byte
 
-	message = []byte(fmt.Sprintf("Request from %s", getIP(req)))
+	message = []byte(fmt.Sprintf("Request from %s", getIP(req, xForwarded)))
 
 	err = connection.WriteMessage(websocket.TextMessage, message)
 	if err == nil {
@@ -139,26 +136,29 @@ func serveWebSocket(wr http.ResponseWriter, req *http.Request, sendServerHostnam
 		fmt.Printf("%s | %s\n", req.RemoteAddr, err)
 	}
 }
-func getIP(r *http.Request) string {
-	// 获取用户IP地址和端口号
-	ipWithPort := r.RemoteAddr
+func getIP(r *http.Request, xForwarded bool) string {
+	ip := ""
+	if xForwarded {
+		ip = r.Header.Get("X-Forwarded-For")
+	}
 
-	// 从IP:Port中提取纯净的IP地址
-	// 注意：如果你的应用部署在反向代理、负载均衡器后面，那么要谨慎使用这种方法
-	ip := strings.Split(ipWithPort, ":")[0]
+	// If the X-Forwarded-For header is not present, fall back to using req.RemoteAddr
+	if ip == "" {
+		ip = strings.Split(r.RemoteAddr, ":")[0]
+	}
 
 	return ip
 }
-func serveHTTP(wr http.ResponseWriter, req *http.Request, sendServerHostname bool) {
+func serveHTTP(wr http.ResponseWriter, req *http.Request, xForwarded bool) {
 	wr.Header().Add("Content-Type", "text/plain")
 	wr.WriteHeader(200)
 
-	fmt.Fprintf(wr, "Request from %s\n\n", getIP(req))
+	fmt.Fprintf(wr, "Request from %s\n\n", getIP(req, xForwarded))
 
 	writeRequest(wr, req)
 }
 
-func serveSSE(wr http.ResponseWriter, req *http.Request, sendServerHostname bool) {
+func serveSSE(wr http.ResponseWriter, req *http.Request, xForwarded bool) {
 	if _, ok := wr.(http.Flusher); !ok {
 		http.Error(wr, "Streaming unsupported!", http.StatusInternalServerError)
 		return
@@ -173,19 +173,6 @@ func serveSSE(wr http.ResponseWriter, req *http.Request, sendServerHostname bool
 	wr.Header().Set("Access-Control-Allow-Origin", "*")
 
 	var id int
-
-	// Write an event about the server that is serving this request.
-	if sendServerHostname {
-		if host, err := os.Hostname(); err == nil {
-			writeSSE(
-				wr,
-				req,
-				&id,
-				"server",
-				host,
-			)
-		}
-	}
 
 	// Write an event that echoes back the request.
 	writeSSE(
