@@ -111,14 +111,7 @@ func serveWebSocket(wr http.ResponseWriter, req *http.Request, sendServerHostnam
 
 	var message []byte
 
-	if sendServerHostname {
-		host, err := os.Hostname()
-		if err == nil {
-			message = []byte(fmt.Sprintf("Request served by %s", host))
-		} else {
-			message = []byte(fmt.Sprintf("Server hostname unknown: %s", err.Error()))
-		}
-	}
+	message = []byte(fmt.Sprintf("Request from %s", getIP(req)))
 
 	err = connection.WriteMessage(websocket.TextMessage, message)
 	if err == nil {
@@ -147,19 +140,21 @@ func serveWebSocket(wr http.ResponseWriter, req *http.Request, sendServerHostnam
 		fmt.Printf("%s | %s\n", req.RemoteAddr, err)
 	}
 }
+func getIP(r *http.Request) string {
+	// 获取用户IP地址和端口号
+	ipWithPort := r.RemoteAddr
 
+	// 从IP:Port中提取纯净的IP地址
+	// 注意：如果你的应用部署在反向代理、负载均衡器后面，那么要谨慎使用这种方法
+	ip := strings.Split(ipWithPort, ":")[0]
+
+	return ip
+}
 func serveHTTP(wr http.ResponseWriter, req *http.Request, sendServerHostname bool) {
 	wr.Header().Add("Content-Type", "text/plain")
 	wr.WriteHeader(200)
 
-	if sendServerHostname {
-		host, err := os.Hostname()
-		if err == nil {
-			fmt.Fprintf(wr, "Request served by %s\n\n", host)
-		} else {
-			fmt.Fprintf(wr, "Server hostname unknown: %s\n\n", err.Error())
-		}
-	}
+	fmt.Fprintf(wr, "Request from %s\n\n", getIP(req))
 
 	writeRequest(wr, req)
 }
